@@ -10,7 +10,9 @@ import { getSystemLocaleLanguage } from '../../utils/intl.js'
 import type {
   LocalJSXCommandCall,
   LocalJSXCommandOnDone,
+  LocalCommandResult,
 } from '../../types/command.js'
+import type { ToolUseContext } from '../../Tool.js'
 import {
   getCompanion,
   getCompanions,
@@ -25,8 +27,10 @@ import {
   releaseCompanion,
   updateExploreState,
   updateCompanions,
+  getCompanionTitleProgress,
 } from '../../buddy/companion.js'
 import {
+  type CacheSafeParams,
   getLastCacheSafeParams,
   runForkedAgent,
   extractResultText,
@@ -40,7 +44,14 @@ import {
   type Companion,
   type CompanionBones,
   type CompanionSoul,
+  type CompanionTitleId,
+  type StoredCompanion,
 } from '../../buddy/types.js'
+import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
+import { getUserContext, getSystemContext } from '../../context.js'
+import { asSystemPrompt } from '../../utils/systemPromptType.js'
+import type { Message } from '../../types/message.js'
+
 const RARITY_LABELS: Record<string, string> = {
   common: l('普通', 'Common'),
   uncommon: l('不寻常', 'Uncommon'),
@@ -48,10 +59,49 @@ const RARITY_LABELS: Record<string, string> = {
   epic: l('史诗', 'Epic'),
   legendary: l('传说', 'Legendary'),
 }
-import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js'
-import { getUserContext, getSystemContext } from '../../context.js'
-import { asSystemPrompt } from '../../utils/systemPromptType.js'
-import type { Message } from '../../types/message.js'
+
+function titleLabel(id: CompanionTitleId): string {
+  switch (id) {
+    case 'syntax_sniffer':
+      return l('语法嗅探者', 'Syntax Sniffer')
+    case 'flow_channeler':
+      return l('思路引流师', 'Flow Channeler')
+    case 'question_hunter':
+      return l('疑点猎手', 'Question Hunter')
+    case 'pairing_oracle':
+      return l('结对先知', 'Pairing Oracle')
+    case 'bug_trapper':
+      return l('漏洞捕手', 'Bug Trapper')
+    case 'mind_gardener':
+      return l('思维园丁', 'Mind Gardener')
+    case 'architecture_owl':
+      return l('架构猫头鹰', 'Architecture Owl')
+    case 'soul_partner':
+      return l('灵魂搭子', 'Soul Partner')
+    case 'stack_trace_diver':
+      return l('栈追猎手', 'Stack Trace Diver')
+    case 'lint_whisperer':
+      return l('Lint 低语者', 'Lint Whisperer')
+    case 'merge_conflict_tamer':
+      return l('冲突驯服师', 'Merge Conflict Tamer')
+    case 'breakpoint_ranger':
+      return l('断点游侠', 'Breakpoint Ranger')
+    case 'refactor_ritualist':
+      return l('重构仪式师', 'Refactor Ritualist')
+    case 'null_guardian':
+      return l('空值守卫', 'Null Guardian')
+    case 'cache_alchemist':
+      return l('缓存炼金师', 'Cache Alchemist')
+    case 'commit_bard':
+      return l('提交吟游诗人', 'Commit Bard')
+    case 'rubber_duck_archmage':
+      return l('鸭鸭大法师', 'Rubber Duck Archmage')
+    case 'semicolon_sorcerer':
+      return l('分号术士', 'Semicolon Sorcerer')
+    default:
+      return id
+  }
+}
 
 function l(zh: string, en: string) {
   const lang = getSystemLocaleLanguage()
@@ -273,6 +323,7 @@ function CompanionCard({
   const stars = RARITY_STARS[companion.rarity] || ''
   const sprite = renderSprite(companion, 0)
   const face = renderFace(companion)
+  const titleProgress = getCompanionTitleProgress(companion)
 
   const handleKeyDown = useCallback(
     (e: { key: string; ctrl?: boolean; preventDefault: () => void }) => {
@@ -293,6 +344,8 @@ function CompanionCard({
       flexDirection="column"
       paddingX={1}
       paddingY={1}
+      borderStyle="round"
+      borderColor={color}
       tabIndex={0}
       autoFocus={true}
       onKeyDown={handleKeyDown}
@@ -319,6 +372,22 @@ function CompanionCard({
              <Text color="blue">SP: {Math.floor(companion.sp ?? ((companion.stats.WISDOM || 10) + 20))}</Text>
           </Box>
           <Text italic dimColor>"{companion.personality}"</Text>
+          <Text dimColor>
+            {l('称号: ', 'Titles: ')}
+            {(companion.titles && companion.titles.length > 0)
+              ? companion.titles.map(titleLabel).join(' / ')
+              : l('暂无', 'None')}
+          </Text>
+          <Text dimColor>
+            {l('互动灵感: ', 'Insight Count: ')}
+            {companion.interactionStats?.totalIdeas ?? 0}
+          </Text>
+          {titleProgress.nextTitle && (
+            <Text dimColor>
+              {l('下一称号: ', 'Next Title: ')}
+              {titleLabel(titleProgress.nextTitle)} ({titleProgress.percent}%)
+            </Text>
+          )}
         </Box>
       </Box>
       <Text> </Text>
@@ -375,12 +444,27 @@ function HatchingView({
     void generateSoul(bones, inspirationSeed, context).then(
       soul => {
         if (cancelled) return
-        const stored = {
+        const maxHp = (bones.stats.PATIENCE || 10) * 2 + 50
+        const maxSp = (bones.stats.WISDOM || 10) + 20
+        const stored: StoredCompanion = {
           name: soul.name,
           personality: soul.personality,
           hatchedAt: Date.now(),
+          level: 1,
+          xp: 0,
+          hp: maxHp,
+          sp: maxSp,
+          lastUpdatedAt: Date.now(),
         }
-        saveGlobalConfig(cfg => ({ ...cfg, companion: stored }))
+        saveGlobalConfig(cfg => {
+          const companions = [...(cfg.companions || (cfg.companion ? [cfg.companion] : []))]
+          companions.push(stored)
+          return {
+            ...cfg,
+            companions,
+            activeCompanionIndex: companions.length - 1,
+          }
+        })
         const companion = getCompanion()
         if (companion) {
           onHatched(companion)
@@ -502,6 +586,8 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
 
   const [partyHp, setPartyHp] = useState(() => allPets.map(p => p.hp ?? calcMaxHp(p.stats)))
   const [partySp, setPartySp] = useState(() => allPets.map(p => p.sp ?? calcMaxSp(p.stats)))
+  const partyHpRef = React.useRef(partyHp)
+  const partySpRef = React.useRef(partySp)
   
   const myPet = allPets[activeIdx]
   const myHp = myPet ? partyHp[activeIdx] : 0
@@ -513,6 +599,7 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
   const [logs, setLogs] = useState<string[]>([l('一只野生的宠物跳了出来！', 'A wild buddy appeared!')])
   const [status, setStatus] = useState<'active'|'captured'|'fled'|'generating'>('active')
   const [defending, setDefending] = useState(false)
+  const defendingRef = React.useRef(false)
 
   const addLog = (l: string) => setLogs(prev => [...prev.slice(-4), l])
 
@@ -526,10 +613,12 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
       captureCompanion(soul, wildSeed)
       
       // Batch update: save current stats + give XP
+      const hpSnapshot = partyHpRef.current
+      const spSnapshot = partySpRef.current
       updateCompanions(list => {
         list.forEach((p, i) => {
-          p.hp = partyHp[i]
-          p.sp = partySp[i]
+          if (i < hpSnapshot.length) p.hp = hpSnapshot[i]
+          if (i < spSnapshot.length) p.sp = spSnapshot[i]
           if (p.hatchedAt === myPet?.hatchedAt) {
              // Main pet gets XP
              let lv = p.level || 1
@@ -548,10 +637,12 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
   }
 
   const finishBattle = (xpGained: number) => {
+    const hpSnapshot = partyHpRef.current
+    const spSnapshot = partySpRef.current
     updateCompanions(list => {
       list.forEach((p, i) => {
-        p.hp = partyHp[i]
-        p.sp = partySp[i]
+        if (i < hpSnapshot.length) p.hp = hpSnapshot[i]
+        if (i < spSnapshot.length) p.sp = spSnapshot[i]
         if (xpGained !== 0 && p.hatchedAt === myPet?.hatchedAt) {
            let lv = p.level || 1
            let xp = (p.xp || 0) + xpGained
@@ -581,8 +672,9 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
     const chaos = wildBones.stats.CHAOS || 10
     let dmg = Math.max(1, Math.floor(snark * 0.4 + (Math.random() * (chaos * 0.2))))
     
-    if (defending) {
+    if (defendingRef.current) {
       dmg = Math.floor(dmg / 2)
+      defendingRef.current = false
       setDefending(false)
     }
 
@@ -590,6 +682,7 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
       const next = [...prev]
       if (next[curIdx] <= 0) return next // already dead
       next[curIdx] = Math.max(0, next[curIdx] - dmg)
+      partyHpRef.current = next
       addLog(`野生 ${RARITY_LABELS[wildBones.rarity]} 对你的 ${curPet.name} 造成了 ${prev[curIdx] - next[curIdx]} 点伤害。`)
       
       if (next[curIdx] <= 0) {
@@ -654,6 +747,7 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
     }
 
     if (action === 'D') {
+      defendingRef.current = true
       setDefending(true)
       addLog(l(`${myPet.name} 采取了防守姿态。`, `${myPet.name} took a defensive stance.`))
       enemyTurn(activeIdx)
@@ -692,6 +786,7 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
       setPartySp(prev => {
         const next = [...prev]
         next[activeIdx] -= 20
+        partySpRef.current = next
         return next
       })
       const matk = myPet.stats.WISDOM || 10
@@ -704,7 +799,7 @@ function BuddyEncounter({ onDone, context }: { onDone: LocalJSXCommandOnDone, co
       setTimeout(() => enemyTurn(activeIdx), 500)
       return
     }
-  }, [status, myPet, wildHp, wildMaxHp, myHp, partyHp, activeIdx, allPets, mySp, defending, onDone])
+  }, [status, myPet, wildHp, wildMaxHp, myHp, partyHp, activeIdx, allPets, mySp, onDone])
 
   const handleKeyDown = useCallback(
     (e: { key: string; ctrl?: boolean; preventDefault: () => void }) => {
@@ -797,7 +892,9 @@ function BuddyList({ onDone }: { onDone: LocalJSXCommandOnDone }) {
     list.forEach((c, idx) => {
       const activeStr = idx === (getGlobalConfig().activeCompanionIndex ?? 0) ? ' [ACTIVE]' : ''
       const lvlStr = `Lv.${c.level ?? 1}`
-      lines.push(`${idx + 1}. ${c.name} (${c.species} ${lvlStr}) - ${RARITY_LABELS[c.rarity]}${activeStr}`)
+      const latestTitle = c.titles?.at(-1)
+      const titleStr = latestTitle ? ` | ${l('称号', 'Title')}: ${titleLabel(latestTitle)}` : ''
+      lines.push(`${idx + 1}. ${c.name} (${c.species} ${lvlStr}) - ${RARITY_LABELS[c.rarity]}${activeStr}${titleStr}`)
     })
     lines.push('\n使用 /buddy swap [数字] 来切换当前跟随的小伙伴。')
     
@@ -977,6 +1074,35 @@ function BuddyFree({ onDone, arg }: { onDone: LocalJSXCommandOnDone, arg: string
 function BuddyExplore({ onDone, context }: { onDone: LocalJSXCommandOnDone, context: ToolUseContext }) {
   const [loading, setLoading] = useState(false)
   const [comp] = useState(() => getCompanion())
+  const calcMaxHp = (stats: CompanionBones['stats']) => (stats.PATIENCE || 10) * 2 + 50
+  const calcMaxSp = (stats: CompanionBones['stats']) => (stats.WISDOM || 10) + 20
+
+  const rollExploreReward = (pet: Companion) => {
+    const wisdom = pet.stats.WISDOM || 10
+    const luck = Math.random() + wisdom / 200
+    if (luck > 1.2) {
+      return {
+        tierLabel: l('神话奇遇', 'Mythic Find'),
+        xp: 50,
+        hp: 8,
+        sp: 15,
+      }
+    }
+    if (luck > 0.9) {
+      return {
+        tierLabel: l('稀有收获', 'Rare Haul'),
+        xp: 40,
+        hp: 4,
+        sp: 8,
+      }
+    }
+    return {
+      tierLabel: l('普通探索', 'Routine Scout'),
+      xp: 30,
+      hp: 0,
+      sp: 4,
+    }
+  }
 
   useEffect(() => {
     if (!comp) {
@@ -1024,12 +1150,29 @@ function BuddyExplore({ onDone, context }: { onDone: LocalJSXCommandOnDone, cont
             })
 
             const answer = decodeEntities(extractResultText(res.messages))
+            const reward = rollExploreReward(comp)
             updateExploreState(comp, undefined) // clear
-            gainXP(comp, 30)
-            onDone(l(`🎉 ${comp.name} 探险归来啦 (XP +30)！\n📝 探险日记：\n${answer}`, `🎉 ${comp.name} returned from expedition (XP +30)!\n📝 Adventure Log:\n${answer}`), { display: 'system' })
+            updateCompanions(list => {
+              const idx = list.findIndex(p => p.hatchedAt === comp.hatchedAt && p.seed === comp.seed)
+              if (idx === -1) return
+              const target = list[idx]!
+              const bones = target.seed ? rollWithSeed(target.seed).bones : roll(companionUserId()).bones
+              const maxHp = calcMaxHp(bones.stats)
+              const maxSp = calcMaxSp(bones.stats)
+              target.hp = Math.min(maxHp, (target.hp ?? maxHp) + reward.hp)
+              target.sp = Math.min(maxSp, (target.sp ?? maxSp) + reward.sp)
+            })
+            gainXP(comp, reward.xp)
+            onDone(
+              l(
+                `🎉 ${comp.name} 探险归来啦！[${reward.tierLabel}] (XP +${reward.xp})\n🧪 额外恢复: HP +${reward.hp} / SP +${reward.sp}\n📝 探险日记：\n${answer}`,
+                `🎉 ${comp.name} returned! [${reward.tierLabel}] (XP +${reward.xp})\n🧪 Bonus Recovery: HP +${reward.hp} / SP +${reward.sp}\n📝 Adventure Log:\n${answer}`,
+              ),
+              { display: 'system' },
+            )
         } catch (e) {
             updateExploreState(comp, undefined)
-            gainXP(comp, 30)
+            gainXP(comp, 10)
             onDone(l(`😵 探险由于信号不佳中断了: ${String(e)}`, `😵 Expedition interrupted due to poor signal: ${String(e)}`), { display: 'system' })
         }
     }
@@ -1238,6 +1381,9 @@ function BuddyFuse({ onDone, context, arg }: { onDone: LocalJSXCommandOnDone, co
       const newBones: CompanionBones = {
           species: p1.species, // 脸继承自一方
           rarity: p2.rarity, // 体格继承自另一方
+          eye: p1.eye,
+          hat: p2.hat,
+          shiny: p1.shiny || p2.shiny,
           stats: {
               PATIENCE: Math.max(p1.stats.PATIENCE, p2.stats.PATIENCE),
               SNARK: Math.max(p1.stats.SNARK, p2.stats.SNARK),
@@ -1248,31 +1394,43 @@ function BuddyFuse({ onDone, context, arg }: { onDone: LocalJSXCommandOnDone, co
       }
       
       const soul: CompanionSoul = {
-          ...newBones,
           name: data.name || '疯狂缝合怪',
           personality: Array.isArray(data.personality) ? data.personality.join(', ') : (data.personality || '精分')
       }
 
       saveGlobalConfig(cfg => {
           let companions = [...(cfg.companions || (cfg.companion ? [cfg.companion] : []))]
-          const fused = {
+          const maxHp = (newBones.stats.PATIENCE || 10) * 2 + 50
+          const maxSp = (newBones.stats.WISDOM || 10) + 20
+          const fused: StoredCompanion = {
               ...soul,
               hatchedAt: Date.now(),
               seed: Math.random().toString(36).substring(7),
+              fusedBones: newBones,
               level: Math.max(p1.level ?? 1, p2.level ?? 1) + 1,
-              xp: 0
+              xp: 0,
+              hp: maxHp,
+              sp: maxSp,
+              lastUpdatedAt: Date.now(),
           }
           
           const indices = [idx1, idx2].sort((a,b) => b - a)
           companions.splice(indices[0]!, 1)
           companions.splice(indices[1]!, 1)
-          companions.push(fused as any)
+          companions.push(fused)
           
           return { ...cfg, companions, activeCompanionIndex: companions.length - 1 }
       })
 
         setLoading(false)
-      const sprite = renderSprite(soul, 0)
+      const previewCompanion: Companion = {
+        ...newBones,
+        ...soul,
+        hatchedAt: Date.now(),
+        level: Math.max(p1.level ?? 1, p2.level ?? 1) + 1,
+        xp: 0,
+      }
+      const sprite = renderSprite(previewCompanion, 0)
       setResultSprite(sprite)
       setLogs(prev => [...prev, l(`💥 融合成功！一只崭新的 Lv.${Math.max(p1.level ?? 1, p2.level ?? 1) + 1} 极品缝合怪诞生了！`, `💥 Fusion Complete! A brand new Lv.${Math.max(p1.level ?? 1, p2.level ?? 1) + 1} mutant has been born!`)])
       onDone(l('大工程！由于强烈的羁绊，它已跑到前台跟随。', 'Grand project! Due to a strong bond, it is now your ACTIVE companion.'), { display: 'system' })
@@ -1317,6 +1475,8 @@ function BuddyRaid({ onDone }: { onDone: LocalJSXCommandOnDone }) {
 
   const [partyHp, setPartyHp] = useState(() => allPets.map(p => p.hp ?? calcMaxHp(p.stats)))
   const [partySp, setPartySp] = useState(() => allPets.map(p => p.sp ?? calcMaxSp(p.stats)))
+  const partyHpRef = React.useRef(partyHp)
+  const partySpRef = React.useRef(partySp)
   
   const myPet = allPets[activeIdx]
   const myHp = myPet ? partyHp[activeIdx] : 0
@@ -1329,15 +1489,18 @@ function BuddyRaid({ onDone }: { onDone: LocalJSXCommandOnDone }) {
   const [logs, setLogs] = useState<string[]>([l(`⚠️ 警告！时空裂缝撕开，${bossName} 降临了！无法执行捕获！`, `⚠️ WARNING! Space-time rift torn, ${bossName} has arrived! Capture disabled!`)])
   const [status, setStatus] = useState<'active'|'victory'|'fled'>('active')
   const [defending, setDefending] = useState(false)
+  const defendingRef = React.useRef(false)
 
   const addLog = (l: string) => setLogs(prev => [...prev.slice(-4), l])
 
   const finishRaid = (isVictory: boolean) => {
+    const hpSnapshot = partyHpRef.current
+    const spSnapshot = partySpRef.current
     updateCompanions(list => {
       list.forEach((p, i) => {
         // Sync HP/SP back to storage
-        p.hp = partyHp[i]
-        p.sp = partySp[i]
+        if (i < hpSnapshot.length) p.hp = hpSnapshot[i]
+        if (i < spSnapshot.length) p.sp = spSnapshot[i]
         
         if (isVictory) {
           // Massive Level up logic
@@ -1373,8 +1536,9 @@ function BuddyRaid({ onDone }: { onDone: LocalJSXCommandOnDone }) {
     // Boss attacks (Hits like a truck)
     let dmg = Math.floor(40 + Math.random() * 60)
     
-    if (defending) {
+    if (defendingRef.current) {
       dmg = Math.floor(dmg / 3)
+      defendingRef.current = false
       setDefending(false)
     }
 
@@ -1382,6 +1546,7 @@ function BuddyRaid({ onDone }: { onDone: LocalJSXCommandOnDone }) {
       const next = [...prev]
       if (next[curIdx] <= 0) return next 
       next[curIdx] = Math.max(0, next[curIdx] - dmg)
+      partyHpRef.current = next
       addLog(`${bossName} 爆发出了一阵红光，对 ${curPet!.name} 造成了惊人的 ${prev[curIdx]! - next[curIdx]!} 点碾压伤害 (Massive hit)!`)
       
       if (next[curIdx] <= 0) {
@@ -1441,6 +1606,7 @@ function BuddyRaid({ onDone }: { onDone: LocalJSXCommandOnDone }) {
     }
 
     if (action === 'D') {
+      defendingRef.current = true
       setDefending(true)
       addLog(`${myPet.name} 采取了绝对防守姿态 (Absolute Defense).`)
       enemyTurn(activeIdx)
@@ -1467,6 +1633,7 @@ function BuddyRaid({ onDone }: { onDone: LocalJSXCommandOnDone }) {
       setPartySp(prev => {
         const next = [...prev]
         next[activeIdx]! -= 20
+        partySpRef.current = next
         return next
       })
       const matk = myPet.stats.WISDOM || 10
@@ -1479,7 +1646,7 @@ function BuddyRaid({ onDone }: { onDone: LocalJSXCommandOnDone }) {
       setTimeout(() => enemyTurn(activeIdx), 500)
       return
     }
-  }, [status, myPet, bossHp, bossMaxHp, myHp, partyHp, activeIdx, allPets, mySp, defending, onDone])
+  }, [status, myPet, bossHp, bossMaxHp, myHp, partyHp, activeIdx, allPets, mySp, onDone])
 
   const handleKeyDown = useCallback(
     (e: { key: string; ctrl?: boolean; preventDefault: () => void }) => {
@@ -1609,7 +1776,7 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
       return <BuddySwap onDone={onDone} arg={argValue} />
     case 'wild':
     case 'encounter':
-      return <BuddyEncounter onDone={onDone} />
+      return <BuddyEncounter onDone={onDone} context={context} />
     case 'mute':
     case '静音':
       return <BuddyMute onDone={onDone} mute={true} />
@@ -1636,6 +1803,6 @@ export const call: LocalJSXCommandCall = async (onDone, context, args) => {
     case 'boss':
       return <BuddyRaid onDone={onDone} />
     default:
-      return <BuddyMain onDone={onDone} />
+      return <BuddyMain onDone={onDone} context={context} />
   }
 }

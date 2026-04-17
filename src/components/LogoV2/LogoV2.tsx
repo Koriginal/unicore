@@ -111,7 +111,7 @@ export function LogoV2() {
   useEffect(t2, t3);
   let t4;
   if ($[5] === Symbol.for("react.memo_cache_sentinel")) {
-    t4 = !hasReleaseNotes && !showOnboarding && !isEnvTruthy(process.env.UNICORE_CODE_FORCE_FULL_LOGO);
+    t4 = !hasReleaseNotes && !showOnboarding && !isEnvTruthy(process.env.UNICORE_CODE_FORCE_FULL_LOGO) && isEnvTruthy(process.env.UNICORE_CODE_FORCE_CONDENSED_LOGO);
     $[5] = t4;
   } else {
     t4 = $[5];
@@ -172,7 +172,7 @@ export function LogoV2() {
     t10 = $[14];
   }
   const modelDisplayName = t10;
-  if (!hasReleaseNotes && !showOnboarding && !isEnvTruthy(process.env.UNICORE_CODE_FORCE_FULL_LOGO)) {
+  if (!hasReleaseNotes && !showOnboarding && !isEnvTruthy(process.env.UNICORE_CODE_FORCE_FULL_LOGO) && isEnvTruthy(process.env.UNICORE_CODE_FORCE_CONDENSED_LOGO)) {
     let t11;
     let t12;
     let t13;

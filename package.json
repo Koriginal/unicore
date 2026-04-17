@@ -1,6 +1,6 @@
 {
   "name": "unicore",
-  "version": "0.1.3-unicore",
+  "version": "0.1.4-unicore",
   "description": "UniCore - A rebranding of Claude Code",
   "type": "module",
   "main": "src/entrypoints/cli.tsx",

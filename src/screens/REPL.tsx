@@ -274,6 +274,8 @@ const WebBrowserPanelModule = feature('WEB_BROWSER_TOOL') ? require('../tools/We
 import { IssueFlagBanner } from '../components/PromptInput/IssueFlagBanner.js';
 import { useIssueFlagBanner } from '../hooks/useIssueFlagBanner.js';
 import { CompanionSprite, CompanionFloatingBubble, MIN_COLS_FOR_FULL_SPRITE } from '../buddy/CompanionSprite.js';
+import { fireCompanionObserver } from '../buddy/observer.js';
+import { getCompanion, triggerCompanionInsight } from '../buddy/companion.js';
 import { DevBar } from '../components/DevBar.js';
 // Session manager removed - using AppState now
 import type { RemoteSessionConfig } from '../remote/RemoteSessionManager.js';
@@ -1331,6 +1333,8 @@ export function REPL({
   const [inputValue, setInputValueRaw] = useState(() => consumeEarlyInput());
   const inputValueRef = useRef(inputValue);
   inputValueRef.current = inputValue;
+  const lastTypingInsightAtRef = useRef(0);
+  const lastThinkingInsightAtRef = useRef(0);
   const insertTextRef = useRef<{
     insert: (text: string) => void;
     setInputWithCursor: (value: string, cursor: number) => void;
@@ -1343,6 +1347,7 @@ export function REPL({
   // the previous useEffect → setState pattern caused.
   const setInputValue = useCallback((value: string) => {
     if (trySuggestBgPRIntercept(inputValueRef.current, value)) return;
+    const prevInput = inputValueRef.current;
     // In fullscreen mode, typing into an empty prompt re-pins scroll to
     // bottom. Only fires on empty→non-empty so scrolling up to reference
     // something while composing a message doesn't yank the view back on
@@ -1360,7 +1365,32 @@ export function REPL({
     inputValueRef.current = value;
     setInputValueRaw(value);
     setIsPromptInputActive(value.trim().length > 0);
-  }, [setIsPromptInputActive, repinScroll, trySuggestBgPRIntercept]);
+
+    if (!feature('BUDDY') || isLoading) return;
+
+    const grewBy = value.length - prevInput.length;
+    const now = Date.now();
+    if (now - lastTypingInsightAtRef.current < 15_000) return;
+    if (value.trim().length < 18 || grewBy < 2) return;
+
+    const maybeQuestion = value.includes('?') && !prevInput.includes('?');
+    const hasMeaningfulBoundary = value.endsWith('\n') || value.endsWith(')') || value.endsWith(';') || value.endsWith('}');
+    if (!maybeQuestion && !hasMeaningfulBoundary && Math.random() > 0.12) return;
+
+    const companion = getCompanion();
+    if (!companion) return;
+    const insight = triggerCompanionInsight(companion, maybeQuestion ? 'question' : 'coding');
+    if (!insight) return;
+
+    lastTypingInsightAtRef.current = now;
+    const reaction = insight.newlyUnlockedTitles && insight.newlyUnlockedTitles.length > 0
+      ? `${insight.reaction} [New Title x${insight.newlyUnlockedTitles.length}]`
+      : insight.reaction;
+    setAppState(prev => prev.companionReaction === reaction ? prev : {
+      ...prev,
+      companionReaction: reaction
+    });
+  }, [setIsPromptInputActive, repinScroll, trySuggestBgPRIntercept, isLoading, setAppState]);
 
   // Schedule a timeout to stop suppressing dialogs after the user stops typing.
   // Only manages the timeout — the immediate activation is handled by setInputValue above.
@@ -1369,6 +1399,32 @@ export function REPL({
     const timer = setTimeout(setIsPromptInputActive, PROMPT_SUPPRESSION_MS, false);
     return () => clearTimeout(timer);
   }, [inputValue]);
+
+  useEffect(() => {
+    if (!feature('BUDDY') || isLoading) return;
+    if (inputValue.trim().length < 24) return;
+
+    const timer = setTimeout(() => {
+      const now = Date.now();
+      if (now - lastThinkingInsightAtRef.current < 30_000) return;
+      const companion = getCompanion();
+      if (!companion) return;
+      const insight = triggerCompanionInsight(companion, 'thinking');
+      if (!insight) return;
+
+      lastThinkingInsightAtRef.current = now;
+      const reaction = insight.newlyUnlockedTitles && insight.newlyUnlockedTitles.length > 0
+        ? `${insight.reaction} [New Title x${insight.newlyUnlockedTitles.length}]`
+        : insight.reaction;
+      setAppState(prev => prev.companionReaction === reaction ? prev : {
+        ...prev,
+        companionReaction: reaction
+      });
+    }, 7000);
+
+    return () => clearTimeout(timer);
+  }, [inputValue, isLoading, setAppState]);
+
   const [inputMode, setInputMode] = useState<PromptInputMode>('prompt');
   const [stashedPrompt, setStashedPrompt] = useState<{
     text: string;

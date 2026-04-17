@@ -144,6 +144,35 @@ export type CompanionSoul = {
   personality: string
 }
 
+export const COMPANION_TITLE_IDS = [
+  'syntax_sniffer',
+  'flow_channeler',
+  'question_hunter',
+  'pairing_oracle',
+  'bug_trapper',
+  'mind_gardener',
+  'architecture_owl',
+  'soul_partner',
+  'stack_trace_diver',
+  'lint_whisperer',
+  'merge_conflict_tamer',
+  'breakpoint_ranger',
+  'refactor_ritualist',
+  'null_guardian',
+  'cache_alchemist',
+  'commit_bard',
+  'rubber_duck_archmage',
+  'semicolon_sorcerer',
+] as const
+export type CompanionTitleId = (typeof COMPANION_TITLE_IDS)[number]
+
+export type CompanionInteractionStats = {
+  codingIdeas?: number
+  thinkingIdeas?: number
+  questionIdeas?: number
+  totalIdeas?: number
+}
+
 export type Companion = CompanionBones &
   CompanionSoul & {
     hatchedAt: number
@@ -151,6 +180,15 @@ export type Companion = CompanionBones &
     xp?: number
     hp?: number
     sp?: number
+    titles?: CompanionTitleId[]
+    interactionStats?: CompanionInteractionStats
+    lastInsightAt?: number
+    lastCodingInsightAt?: number
+    lastThinkingInsightAt?: number
+    lastQuestionInsightAt?: number
+    titleDropPity?: number
+    lastFedAt?: number
+    exploreStartedAt?: number
   }
 
 // What actually persists in config. Bones are regenerated from hash(userId)
@@ -159,12 +197,21 @@ export type Companion = CompanionBones &
 export type StoredCompanion = CompanionSoul & { 
   hatchedAt: number
   seed?: string
+  fusedBones?: CompanionBones
   level?: number
   xp?: number
   hp?: number
   sp?: number
   lastFedAt?: number
+  lastUpdatedAt?: number
   exploreStartedAt?: number
+  titles?: CompanionTitleId[]
+  interactionStats?: CompanionInteractionStats
+  lastInsightAt?: number
+  lastCodingInsightAt?: number
+  lastThinkingInsightAt?: number
+  lastQuestionInsightAt?: number
+  titleDropPity?: number
 }
 
 export const RARITY_WEIGHTS = {

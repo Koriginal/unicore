@@ -1,0 +1,5 @@
+export * from '../uniCoreInChrome/prompt.js'
+export {
+  UNICORE_IN_CHROME_SKILL_HINT as CLAUDE_IN_CHROME_SKILL_HINT,
+  UNICORE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER as CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER,
+} from '../uniCoreInChrome/prompt.js'

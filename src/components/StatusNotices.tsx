@@ -1,0 +1,46 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Box } from '../ink.js';
+import type { AgentDefinitionsResult } from '../tools/AgentTool/loadAgentsDir.js';
+import { getMemoryFiles } from '../utils/unicoremd.js';
+import { getGlobalConfig } from '../utils/config.js';
+import { getActiveNotices, type StatusNoticeContext } from '../utils/statusNoticeDefinitions.js';
+
+type Props = {
+  agentDefinitions?: AgentDefinitionsResult;
+};
+
+/**
+ * StatusNotices contains the information displayed to users at startup. We have
+ * moved neutral or positive status to src/components/Status.tsx instead, which
+ * users can access through /status.
+ */
+export function StatusNotices({ agentDefinitions }: Props = {}) {
+  const [memoryFiles, setMemoryFiles] = useState<StatusNoticeContext['memoryFiles']>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getMemoryFiles().then(files => {
+      if (!cancelled) setMemoryFiles(files);
+    }).catch(() => {
+      if (!cancelled) setMemoryFiles([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const context: StatusNoticeContext = useMemo(() => ({
+    config: getGlobalConfig(),
+    agentDefinitions,
+    memoryFiles
+  }), [agentDefinitions, memoryFiles]);
+
+  const activeNotices = getActiveNotices(context);
+  if (activeNotices.length === 0) {
+    return null;
+  }
+
+  return <Box flexDirection="column" paddingLeft={1}>
+      {activeNotices.map(notice => <React.Fragment key={notice.id}>{notice.render(context)}</React.Fragment>)}
+    </Box>;
+}

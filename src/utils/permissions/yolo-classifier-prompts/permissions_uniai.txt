@@ -1,0 +1,11 @@
+<user_allow_rules_to_replace>
+- Allow safe read-only operations.
+</user_allow_rules_to_replace>
+
+<user_deny_rules_to_replace>
+- Deny destructive operations unless explicitly approved.
+</user_deny_rules_to_replace>
+
+<user_environment_to_replace>
+- Respect sandbox and permission settings.
+</user_environment_to_replace>
